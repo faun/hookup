@@ -224,6 +224,7 @@ class Hookup
     end
 
     def rake(*args)
+      puts "Running rake #{args.join(' ')}..." if ENV['HOOKUP_DEBUG']
       Dir.chdir(working_dir) do
         if File.executable?('bin/rake')
           system 'bin/rake', *args
