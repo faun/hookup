@@ -134,6 +134,9 @@ class Hookup
       opts.on('--load-schema=COMMAND', 'Run COMMAND on migration failure') do |command|
         env['HOOKUP_LOAD_SCHEMA'] = command
       end
+      opts.on('--database=NAME', 'Database name') do |name|
+        env['HOOKUP_DATABASE_NAME'] = name
+      end
       opts.parse!(args)
 
       @old = args.shift
