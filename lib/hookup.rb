@@ -1,5 +1,4 @@
 class Hookup
-
   class Error < RuntimeError
   end
 
@@ -35,7 +34,7 @@ class Hookup
 
   def git_dir
     unless @git_dir
-      @git_dir = %x{git rev-parse --git-dir}.chomp
+      @git_dir = `git rev-parse --git-dir`.chomp
       raise Error unless $?.success?
     end
     @git_dir
@@ -46,7 +45,7 @@ class Hookup
   end
 
   def make_command(command)
-    bundler? ? command.insert(0, "bundle exec ") : command
+    bundler? ? command.insert(0, 'bundle exec ') : command
   end
 
   def post_checkout_file
@@ -58,8 +57,8 @@ class Hookup
   end
 
   def install
-    append(post_checkout_file, 0777) do |body, f|
-      f.puts "#!/bin/bash" unless body
+    append(post_checkout_file, 0o777) do |body, f|
+      f.puts '#!/bin/bash' unless body
       f.puts make_command(%(hookup post-checkout "$@")) if body !~ /hookup/
     end
 
@@ -70,7 +69,7 @@ class Hookup
 
     system 'git', 'config', 'merge.railsschema.driver', make_command('hookup resolve-schema %A %O %B %L')
 
-    puts "Hooked up!"
+    puts 'Hooked up!'
   end
 
   def remove
@@ -84,7 +83,7 @@ class Hookup
 
     system 'git', 'config', '--unset', 'merge.railsschema.driver'
 
-    puts "Hookup removed!"
+    puts 'Hookup removed!'
   end
 
   def append(file, *args)
@@ -101,7 +100,6 @@ class Hookup
   end
 
   class PostCheckout
-
     attr_reader :old, :new, :env
 
     def partial?
@@ -113,7 +111,7 @@ class Hookup
     end
 
     def possible_schemas
-      %w(development_structure.sql schema.rb structure.sql).map do |file|
+      %w[development_structure.sql schema.rb structure.sql].map do |file|
         File.join schema_dir, file
       end
     end
@@ -126,7 +124,7 @@ class Hookup
       @env ||= environment.to_hash.dup
       require 'optparse'
       opts = OptionParser.new
-      opts.banner = "Usage: hookup post-checkout <old> <new> <full>"
+      opts.banner = 'Usage: hookup post-checkout <old> <new> <full>'
       opts.on('-Cdirectory', 'cd to directory') do |directory|
         env['HOOKUP_WORKING_DIR'] = directory
       end
@@ -152,10 +150,11 @@ class Hookup
 
     def run
       return if skipped? || env['GIT_REFLOG_ACTION'] =~ /^(?:pull|rebase)/
-      unless partial?
-        bundle
-        migrate
-      end
+
+      return if partial?
+
+      bundle
+      migrate
     end
 
     def bundler?
@@ -164,60 +163,56 @@ class Hookup
 
     def bundle
       return unless bundler?
-      if %x{git diff --name-only #{old} #{new}} =~ /^Gemfile|\.gemspec$/
-        begin
-          # If Bundler in turn spawns Git, it can get confused by $GIT_DIR
-          git_dir = ENV.delete('GIT_DIR')
-          %x{bundle check}
-          unless $?.success?
-            puts "Bundling..."
-            Dir.chdir(working_dir) do
-              system("bundle | grep -v '^Using ' | grep -v ' is complete'")
-            end
+
+      return unless `git diff --name-only #{old} #{new}` =~ /^Gemfile|\.gemspec$/
+
+      begin
+        # If Bundler in turn spawns Git, it can get confused by $GIT_DIR
+        git_dir = ENV.delete('GIT_DIR')
+        `bundle check`
+        unless $?.success?
+          puts 'Bundling...'
+          Dir.chdir(working_dir) do
+            system("bundle | grep -v '^Using ' | grep -v ' is complete'")
           end
-        ensure
-          ENV['GIT_DIR'] = git_dir
         end
+      ensure
+        ENV['GIT_DIR'] = git_dir
       end
     end
 
     def migrate
       schemas = possible_schemas.select do |schema|
-        status = %x{git diff --name-status #{old} #{new} -- #{schema}}.chomp
+        status = `git diff --name-status #{old} #{new} -- #{schema}`.chomp
         rake 'db:create' if status =~ /^A/
         status !~ /^D/ && !status.empty?
       end
 
       return if schemas.empty?
 
-      migrations = %x{git diff --name-status #{old} #{new} -- #{schema_dir}/migrate}.scan(/.+/).map {|l| l.split(/\t/) }
+      migrations = `git diff --name-status #{old} #{new} -- #{schema_dir}/migrate`.scan(/.+/).map { |l| l.split(/\t/) }
       begin
-        migrations.select {|(t,f)| %w(D M).include?(t)}.reverse.each do |type, file|
-          begin
-            system 'git', 'checkout', old, '--', file
-            unless rake 'db:migrate:down', "VERSION=#{File.basename(file)}"
-              raise Error, "Failed to rollback #{File.basename(file)}"
-            end
-          ensure
-            if type == 'D'
-              system 'git', 'rm', '--force', '--quiet', '--', file
-            else
-              system 'git', 'checkout', new, '--', file
-            end
+        migrations.select { |(t, _f)| %w[D M].include?(t) }.reverse.each do |type, file|
+          system 'git', 'checkout', old, '--', file
+          unless rake 'db:migrate:down', "VERSION=#{File.basename(file)}"
+            raise Error, "Failed to rollback #{File.basename(file)}"
+          end
+        ensure
+          if type == 'D'
+            system 'git', 'rm', '--force', '--quiet', '--', file
+          else
+            system 'git', 'checkout', new, '--', file
           end
         end
 
-        if migrations.any? {|(t,f)| %w(A M).include?(t)}
-          rake 'db:migrate'
-        end
-
+        rake 'db:migrate' if migrations.any? { |(t, _f)| %w[A M].include?(t) }
       ensure
-        changes = %x{git diff --name-status #{new} -- #{schemas.join(' ')}}
+        changes = `git diff --name-status #{new} -- #{schemas.join(' ')}`
 
         unless changes.empty?
           system 'git', 'checkout', '--', *schemas
 
-          puts "Schema out of sync."
+          puts 'Schema out of sync.'
 
           fallback = env['HOOKUP_LOAD_SCHEMA']
           if fallback && fallback != ''
@@ -243,25 +238,23 @@ class Hookup
     def skipped?
       env['SKIP_HOOKUP']
     end
-
   end
 
   def resolve_schema(a, o, b, marker_size = 7)
     system 'git', 'merge-file', "--marker-size=#{marker_size}", a, o, b
     body = File.read(a)
-    resolve_schema_version body, ":version =>"
-    resolve_schema_version body, "version:"
+    resolve_schema_version body, ':version =>'
+    resolve_schema_version body, 'version:'
     File.open(a, 'w') { |f| f.write(body) }
-    if body.include?('<' * marker_size.to_i)
-      raise Failure, 'Failed to automatically resolve schema conflict'
-    end
+    return unless body.include?('<' * marker_size.to_i)
+
+    raise Failure, 'Failed to automatically resolve schema conflict'
   end
 
   def resolve_schema_version(body, version)
-    asd = "ActiveRecord::Schema.define"
+    asd = 'ActiveRecord::Schema.define'
     body.sub!(/^<+ .*\n#{asd}\(#{version} ([0-9_]+)\) do\n=+\n#{asd}\(#{version} ([0-9_]+)\) do\n>+ .*/) do
-      "#{asd}(#{version} #{[$1, $2].max}) do"
+      "#{asd}(#{version} #{[::Regexp.last_match(1), ::Regexp.last_match(2)].max}) do"
     end
   end
-
 end
