@@ -128,6 +128,14 @@ class Hookup
       env['HOOKUP_WORKING_DIR'] || '.'
     end
 
+    def database_name
+      (env['HOOKUP_DATABASE_NAME'] || '').to_s.strip
+    end
+
+    def multiple_databases?
+      !!database_name.empty?
+    end
+
     def initialize(environment, *args)
       @env ||= environment.to_hash.dup
       require 'optparse'
@@ -195,7 +203,8 @@ class Hookup
     def migrate
       schemas = possible_schemas.select do |schema|
         status = `git diff --name-status #{old} #{new} -- #{schema}`.chomp
-        rake 'db:create' if status =~ /^A/
+        create_command = multiple_databases? ? "db:create:#{database_name}" : 'db:create'
+        rake create_command if status =~ /^A/
         status !~ /^D/ && !status.empty?
       end
 
@@ -205,7 +214,8 @@ class Hookup
       begin
         migrations.select { |(t, _f)| %w[D M].include?(t) }.reverse.each do |type, file|
           system 'git', 'checkout', old, '--', file
-          unless rake 'db:migrate:down', "VERSION=#{File.basename(file)}"
+          migrate_down_command = multiple_databases? ? "db:migrate:down:#{database_name}" : 'db:migrate:down'
+          unless rake migrate_down_command, "VERSION=#{File.basename(file)}"
             raise Error, "Failed to rollback #{File.basename(file)}"
           end
         ensure
@@ -216,7 +226,10 @@ class Hookup
           end
         end
 
-        rake 'db:migrate' if migrations.any? { |(t, _f)| %w[A M].include?(t) }
+        if migrations.any? { |(t, _f)| %w[A M].include?(t) }
+          migrate_command = multiple_databases? ? "db:migrate:#{database_name}" : 'db:migrate'
+          rake migrate_command
+        end
       ensure
         changes = `git diff --name-status #{new} -- #{schemas.join(' ')}`
 
