@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+require_relative 'hookup/version'
+
 class Hookup
   class Error < RuntimeError
   end
@@ -30,6 +34,10 @@ class Hookup
         raise Error, "Invalid arguments for #{command}"
       end
     end
+  end
+
+  def version
+    puts VERSION
   end
 
   def git_dir
